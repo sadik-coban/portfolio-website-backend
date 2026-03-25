@@ -36,37 +36,33 @@ def _get_parquet_path() -> str:
     return _cached_parquet_path
 
 
+def _escape_sql_string(value: str) -> str:
+    """Escape a string value for safe inline SQL interpolation."""
+    return value.replace("'", "''")
+
+
 def build_filter_clause(brand, series, min_price, max_price, min_year, max_year, min_km, max_km, fuel, include_series=True):
+    """Build a WHERE clause with values inlined (DuckDB can't use prepared params with CREATE VIEW / list FILTER)."""
     filters = ["1=1"]
-    params = {}
     if brand and brand != "Tümü":
-        filters.append("brand = $brand")
-        params["brand"] = brand
+        filters.append(f"brand = '{_escape_sql_string(brand)}'")
     if include_series and series and series != "Tümü":
-        filters.append("series = $series")
-        params["series"] = series
+        filters.append(f"series = '{_escape_sql_string(series)}'")
     if min_price:
-        filters.append("price >= $min_price")
-        params["min_price"] = min_price
+        filters.append(f"price >= {float(min_price)}")
     if max_price:
-        filters.append("price <= $max_price")
-        params["max_price"] = max_price
+        filters.append(f"price <= {float(max_price)}")
     if min_year:
-        filters.append("kb_year >= $min_year")
-        params["min_year"] = min_year
+        filters.append(f"kb_year >= {int(min_year)}")
     if max_year:
-        filters.append("kb_year <= $max_year")
-        params["max_year"] = max_year
+        filters.append(f"kb_year <= {int(max_year)}")
     if min_km:
-        filters.append("kb_mileage >= $min_km")
-        params["min_km"] = min_km
+        filters.append(f"kb_mileage >= {int(min_km)}")
     if max_km:
-        filters.append("kb_mileage <= $max_km")
-        params["max_km"] = max_km
+        filters.append(f"kb_mileage <= {int(max_km)}")
     if fuel and fuel != "Tümü":
-        filters.append("kb_fuel = $fuel")
-        params["fuel"] = fuel
-    return " AND ".join(filters), params
+        filters.append(f"kb_fuel = '{_escape_sql_string(fuel)}'")
+    return " AND ".join(filters)
 
 
 def get_dashboard_data(
@@ -76,8 +72,8 @@ def get_dashboard_data(
     min_km: Optional[int] = None, max_km: Optional[int] = None,
     fuel: Optional[str] = None
 ):
-    base_where, base_params = build_filter_clause(brand, None, min_price, max_price, min_year, max_year, min_km, max_km, fuel, include_series=False)
-    final_where, final_params = build_filter_clause(brand, series, min_price, max_price, min_year, max_year, min_km, max_km, fuel, include_series=True)
+    base_where = build_filter_clause(brand, None, min_price, max_price, min_year, max_year, min_km, max_km, fuel, include_series=False)
+    final_where = build_filter_clause(brand, series, min_price, max_price, min_year, max_year, min_km, max_km, fuel, include_series=True)
 
     try:
         parquet_file = _get_parquet_path()
@@ -93,7 +89,7 @@ def get_dashboard_data(
                 list(DISTINCT series ORDER BY series) FILTER (WHERE series IS NOT NULL) as series_list 
             FROM read_parquet('{parquet_file}') WHERE {base_where}
         """
-        lists_result = conn.execute(lists_query, base_params).fetchone()
+        lists_result = conn.execute(lists_query).fetchone()
         unique_brands = sorted(lists_result[0]) if lists_result and lists_result[0] else []
         unique_series = sorted(lists_result[1]) if lists_result and lists_result[1] else []
 
@@ -112,7 +108,7 @@ def get_dashboard_data(
         """
 
         # Create a view for filtered data to reuse across queries
-        conn.execute(f"CREATE TEMP VIEW filtered_data AS SELECT * FROM read_parquet('{parquet_file}') WHERE {final_where}", final_params)
+        conn.execute(f"CREATE TEMP VIEW filtered_data AS SELECT * FROM read_parquet('{parquet_file}') WHERE {final_where}")
 
         # KPI stats
         kpi = conn.execute("SELECT COUNT(*) as total_count, COALESCE(AVG(price), 0) as avg_price FROM filtered_data").fetchone()
