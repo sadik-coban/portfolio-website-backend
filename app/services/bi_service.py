@@ -16,7 +16,7 @@ from typing import Optional
 
 import numpy as np
 
-from app.core.db import get_db_connection, table_exists
+from app.core.db import get_db_connection
 
 # ── constants (mirror compute.ts / build-bi-rows.mjs) ────────────────────
 SEG = ["B", "C", "D", "E", "F", "S"]

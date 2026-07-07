@@ -1,13 +1,13 @@
-"""
-Drift Service — reads train_data.parquet from the persistent volume.
-"""
-from pathlib import Path
+"""Drift Service — distribution drift between two car_listings snapshots (DuckDB).
 
-import pandas as pd
-import numpy as np
-from scipy.stats import ks_2samp, wasserstein_distance
+The live path (`get_data_drift`) compares two listing time-slices from cars.duckdb
+using KS-test + Earth Mover's Distance on numeric features. scipy is imported
+lazily so a process that never runs a drift comparison doesn't pay its import RAM.
+"""
+from __future__ import annotations
 
-from app.core.config import settings
+import numpy as np  # cheap + already resident (bi_service/lgb_service load it at startup)
+
 
 def compute_histogram_bins(data1, data2, bins=20):
     combined = np.concatenate([data1, data2])
@@ -26,6 +26,7 @@ def compute_histogram_bins(data1, data2, bins=20):
             "curr_density": float(hist2[i]),
         })
     return chart_data
+
 
 def get_data_drift(ref, curr, mode: str = "specific", brand: str | None = None):
     """Distribution drift between two LISTING snapshots (data, not model).
@@ -57,33 +58,8 @@ def get_data_drift(ref, curr, mode: str = "specific", brand: str | None = None):
     return calculate_custom_drift(ref_df, curr_df)
 
 
-def get_drift_data(ref_ver: str, curr_ver: str, brand: str | None = None):
-    """Read train_data.parquet from the volume for both versions, then compute drift."""
-    vol = Path(settings.VOLUME_DIR)
-    ref_path = vol / ref_ver / "train_data.parquet"
-    curr_path = vol / curr_ver / "train_data.parquet"
-
-    for p, ver in ((ref_path, ref_ver), (curr_path, curr_ver)):
-        if not p.exists():
-            raise FileNotFoundError(f"train_data.parquet not found on volume for version '{ver}': {p}")
-
-    ref_df = pd.read_parquet(ref_path)
-    curr_df = pd.read_parquet(curr_path)
-
-    # Filter by brand if provided (case-insensitive — brand values are lowercase).
-    if brand:
-        b = str(brand).lower()
-        if "brand" in ref_df.columns:
-            ref_df = ref_df[ref_df["brand"].astype(str).str.lower() == b]
-        if "brand" in curr_df.columns:
-            curr_df = curr_df[curr_df["brand"].astype(str).str.lower() == b]
-        if ref_df.empty or curr_df.empty:
-            raise FileNotFoundError(f"No data found for brand '{brand}' in one or both versions.")
-    
-    return calculate_custom_drift(ref_df, curr_df)
-
-
-def calculate_custom_drift(ref_df: pd.DataFrame, curr_df: pd.DataFrame):
+def calculate_custom_drift(ref_df: "pd.DataFrame", curr_df: "pd.DataFrame"):  # noqa: F821
+    from scipy.stats import ks_2samp, wasserstein_distance  # lazy: only when drift runs
     drift_results = []
     numeric_cols = ref_df.select_dtypes(include=[np.number]).columns.tolist()
     if "price" in numeric_cols:

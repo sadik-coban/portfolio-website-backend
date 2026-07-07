@@ -15,7 +15,6 @@ import pickle
 import threading
 
 import numpy as np
-import pandas as pd
 
 from app.core.config import settings
 from app.core.s3_client import download_to_tempfile
@@ -84,6 +83,10 @@ def predict_price(inp: dict) -> dict:
     for i in range(len(se)):
         row[f"series_{i}"] = float(se[i])
 
+    # Keep the named DataFrame the model was trained with — identical output to the
+    # original serving code (verified). Import pandas lazily: LightGBM already pulls it
+    # in, so this adds no startup RAM while keeping the serving module import cheap.
+    import pandas as pd
     X = pd.DataFrame([[row[c] for c in feat]], columns=feat)
     raw = float(b["model"].predict(X)[0])
     price = float(np.expm1(np.clip(raw, 0.0, np.log1p(1.5e7))))
