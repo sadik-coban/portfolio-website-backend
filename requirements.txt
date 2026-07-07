@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+catboost
+lightgbm
+scikit-learn
+pandas
+numpy
+scipy
+duckdb
+pyarrow
+boto3
+huggingface_hub
+python-multipart
+python-dotenv

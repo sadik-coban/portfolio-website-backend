@@ -1,0 +1,26 @@
+# secrets & local env — NEVER commit
+.env
+.env.*.local
+
+# python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# runtime volume artifacts (data + models live on the Railway volume / S3, not git)
+static_reports/
+.data_version.json
+*.duckdb
+*.pkl
+*.cbm
+*.parquet
+registry.json
+/v[0-9]*/
+
+# os
+.DS_Store
+Thumbs.db
