@@ -1,7 +1,8 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from app.core.config import settings
 from app.api.routes import router
@@ -82,6 +83,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Tell search engines not to index any endpoint (this is a private API surface for
+# the frontend, not content). Stamped on every response — docs, openapi, /api/*.
+@app.middleware("http")
+async def add_noindex_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt():
+    """Disallow all crawlers from the whole API."""
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
 
 app.include_router(router)
 

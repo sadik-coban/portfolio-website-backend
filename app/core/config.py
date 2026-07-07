@@ -14,7 +14,15 @@ _VOLUME_DIR = os.getenv("VOLUME_DIR", str(_REPO_ROOT))
 class Settings(BaseSettings):
     # App
     PROJECT_NAME: str = "Car Price Prediction & MLOps API"
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    # CORS: only the portfolio frontend (prod + local dev). Env-overridable so Railway
+    # can adjust without a redeploy. Explicit origins (not "*") also fix the latent
+    # allow_credentials=True + "*" spec violation.
+    ALLOWED_ORIGINS: list[str] = [
+        "https://www.sadikcoban.com",
+        "https://sadikcoban.com",
+        "http://localhost:3000",
+        "http://localhost:3737",
+    ]
 
     # Persistent volume — single source of truth for the data + model artifacts.
     #   {VOLUME_DIR}/cars.duckdb   (pulled from S3 once at boot)
