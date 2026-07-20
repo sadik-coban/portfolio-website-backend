@@ -1,5 +1,9 @@
 # secrets & local env — NEVER commit
 .env
+# `.env` alone does not match .env.local / .env.production / .env.railway — only the
+# bare name and (via the next line) .env.<something>.local. Catch every variant.
+.env.*
+!.env.example
 .env.*.local
 
 # python

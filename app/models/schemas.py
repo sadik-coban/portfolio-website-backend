@@ -1,11 +1,25 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ─── Price prediction (best model: LightGBM · TF-IDF+SVD) ────────────
 
 class PricePredictInput(BaseModel):
     """Inputs for /api/predict. Categoricals use the training vocabulary (Turkish);
-    model + series are free text (TF-IDF+SVD embedded server-side)."""
+    model + series are free text (TF-IDF+SVD embedded server-side).
+
+    Damage is PANEL-level (2026-07-13 model onward): the three single panels carry a
+    state, the multi-panel groups carry per-operation counts. The older aggregate
+    count_painted / count_changed / count_local_painted fields are gone — the current
+    model never sees them.
+    """
+
+    # Reject unknown fields instead of ignoring them (pydantic's default). A caller still
+    # posting the retired count_painted/count_changed/count_local_painted would otherwise
+    # get HTTP 200 with every panel silently defaulted to undamaged — a heavily repaired
+    # car quoted at a clean-car price, with no error anywhere. A loud 422 makes that skew
+    # impossible to miss. Consequence to plan for: during a deploy the frontend and this
+    # schema must move together, or /api/predict 422s until both sides land.
+    model_config = ConfigDict(extra="forbid")
     brand: str = Field(..., description="bmw | audi")
     series: str = Field(..., description="Series text, e.g. '5 Serisi', 'A4'")
     model: str = Field(..., description="Model text, e.g. '520i Executive M Sport'")
@@ -18,9 +32,24 @@ class PricePredictInput(BaseModel):
     gb_mileage: float = Field(..., ge=0)
     power_hp_val: float = Field(..., ge=0)
     engine_cc_val: float = Field(..., ge=0)
-    count_painted: int = Field(0, ge=0, description="Number of painted body parts")
-    count_changed: int = Field(0, ge=0, description="Number of replaced body parts")
-    count_local_painted: int = Field(0, ge=0, description="Number of locally-painted body parts")
+
+    # Single panels → state. Vocabulary: original | painted | local | changed
+    roof_state: str = Field("original", description="original | painted | local | changed")
+    hood_state: str = Field("original", description="original | painted | local | changed")
+    trunk_state: str = Field("original", description="original | painted | local | changed")
+
+    # Multi-panel groups → how many panels had each operation.
+    # doors: 4 panels · fenders: 4 panels · bumpers: 2 (front, rear)
+    door_changed: int = Field(0, ge=0, le=4, description="Doors replaced (of 4)")
+    door_painted: int = Field(0, ge=0, le=4, description="Doors painted (of 4)")
+    door_local: int = Field(0, ge=0, le=4, description="Doors locally painted (of 4)")
+    fender_changed: int = Field(0, ge=0, le=4, description="Fenders replaced (of 4)")
+    fender_painted: int = Field(0, ge=0, le=4, description="Fenders painted (of 4)")
+    fender_local: int = Field(0, ge=0, le=4, description="Fenders locally painted (of 4)")
+    bumper_changed: int = Field(0, ge=0, le=2, description="Bumpers replaced (of 2)")
+    bumper_painted: int = Field(0, ge=0, le=2, description="Bumpers painted (of 2)")
+    bumper_local: int = Field(0, ge=0, le=2, description="Bumpers locally painted (of 2)")
+
     is_heavy_damaged: int = Field(0, ge=0, le=1)
 
 

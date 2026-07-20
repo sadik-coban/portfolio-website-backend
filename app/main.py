@@ -61,18 +61,37 @@ tags_metadata = [
     {"name": "Dashboard & Analytics", "description": "BI dashboard aggregation + snapshot dates."},
 ]
 
+# Interactive docs are a development tool, not a public surface. The frontend reaches
+# this API through its own server-side proxy (Next.js app/api/[...path]), so nothing
+# in production needs /docs, /redoc or /openapi.json — and serving them publishes the
+# full request schema to anyone who finds the origin. Set ENV=development to get them
+# back locally; on Railway ENV is unset, so all three resolve to None and 404.
+_DEV = settings.ENV.lower() in ("development", "dev", "local")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description=(
         "## Car Price Prediction & Analytics API\n\n"
-        "- 🚗 **Price Prediction** — LightGBM · TF-IDF+SVD, loaded from S3 into memory\n"
-        "- 📈 **BI Dashboard** — server-side aggregation (raw rows never leave the backend)\n"
-        "- 📊 **Data Drift** — KS-test & Earth Mover's Distance between listing snapshots\n"
+        "Serving layer for a used-car price model trained on 29,988 deduplicated "
+        "Turkish listings (BMW + Audi). Every figure the site quotes comes from the "
+        "same evaluation this model shipped from.\n\n"
+        "- 🚗 **Price prediction** — LightGBM · TF-IDF+SVD, bundled with its vectorizer "
+        "and category maps and loaded from S3 into memory at boot. Trained on `log1p(price)`; "
+        "returns a point estimate with a fixed ±6.6% band.\n"
+        "- 📈 **BI dashboard** — aggregation runs server-side; raw listing rows never "
+        "leave the backend.\n"
+        "- 📊 **Data drift** — KS test + Wasserstein distance between listing snapshots "
+        "(not between model versions).\n\n"
+        "**Scope.** Premium German segment, Turkish market, Jan–Jun 2026 snapshots. "
+        "The 5-fold out-of-fold MAPE is 6.49%; the interval is a fixed band, so it "
+        "under-covers the cheapest quartile (81.7% against a 90% target). "
+        "There is no model registry and no quantile head — one model, one bundle."
     ),
     version="2.1.0",
     openapi_tags=tags_metadata,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _DEV else None,
+    redoc_url="/redoc" if _DEV else None,
+    openapi_url="/openapi.json" if _DEV else None,
     lifespan=lifespan,
 )
 
