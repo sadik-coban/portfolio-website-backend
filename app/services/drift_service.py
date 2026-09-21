@@ -29,8 +29,15 @@ DRIFT_FEATURES = [
 _CACHE_DIR = Path(settings.VOLUME_DIR) / "drift_cache"
 
 
+# Bumped whenever the rows or the statistics behind a result change. Entries are never
+# expired — the cache's whole premise is that a historical snapshot pair is immutable —
+# so a changed definition can only be published by writing to a different name. v2 = the
+# run where TR_ROWS reached the drift path; v1 answered from every scraped row.
+_CACHE_VERSION = "v2"
+
+
 def _cache_path(ref, curr, mode: str, brand: str | None) -> Path:
-    key = f"{mode}__{ref}__{curr}__{brand or 'all'}".lower()
+    key = f"{_CACHE_VERSION}__{mode}__{ref}__{curr}__{brand or 'all'}".lower()
     key = re.sub(r"[^a-z0-9_.-]", "_", key)  # filesystem-safe
     return _CACHE_DIR / f"{key}.json"
 

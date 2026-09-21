@@ -17,6 +17,7 @@ from typing import Optional
 import numpy as np
 
 from app.core.db import get_db_connection
+from app.services.data_service import TR_ROWS
 
 # ── constants (mirror compute.ts / build-bi-rows.mjs) ────────────────────
 SEG = ["B", "C", "D", "E", "F", "S"]
@@ -115,12 +116,12 @@ def load_rows(force: bool = False) -> dict:
         return _ROWS
 
     dmg_select = ", ".join(_part_case(p, i) for i, p in enumerate(PARTS))
-    view_sql = r"""
+    view_sql = rf"""
         CREATE OR REPLACE TEMP VIEW cars AS
         WITH ranked AS (
           SELECT *, ROW_NUMBER() OVER (PARTITION BY ad_id ORDER BY search_date DESC, scraped_at DESC) rn
           FROM car_listings
-          WHERE price > 0 AND gb_plate_origin = '(TR) Türkiye'
+          WHERE {TR_ROWS}
         )
         SELECT *,
           trim(regexp_extract(location, ',\s*([^,]+)$', 1)) AS city,
