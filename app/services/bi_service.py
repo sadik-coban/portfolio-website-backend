@@ -11,7 +11,6 @@ is derived from the series (clean); damage is packed 11 parts x 2 bits.
 """
 import math
 import re
-from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -136,13 +135,13 @@ def load_rows(force: bool = False) -> dict:
         FROM cars
         ORDER BY listing_date DESC
     """
-    meta_sql = """
-        SELECT COUNT(*) n_unique, (SELECT COUNT(*) FROM car_listings) n_raw,
+    meta_sql = f"""
+        SELECT COUNT(*) n_unique, (SELECT COUNT(*) FROM car_listings WHERE {TR_ROWS}) n_raw,
                ROUND(AVG(NULLIF(tramer_fee,0))) tramer_avg,
                SUM(CASE WHEN tramer_fee>0 THEN 1 ELSE 0 END) tramer_n
         FROM cars WHERE price > 0
     """
-    snap_sql = "SELECT search_date::VARCHAR d, COUNT(*) n FROM car_listings GROUP BY 1 ORDER BY 1"
+    snap_sql = f"SELECT search_date::VARCHAR d, COUNT(*) n FROM car_listings WHERE {TR_ROWS} GROUP BY 1 ORDER BY 1"
 
     with get_db_connection() as conn:
         conn.execute(view_sql)
@@ -153,12 +152,6 @@ def load_rows(force: bool = False) -> dict:
     # base date = earliest listing_date across the set
     lds = sorted(r[11] for r in rows if r[11])
     base_date = lds[0] if lds else None
-    base_dt = datetime.fromisoformat(base_date) if base_date else None
-
-    def day_offset(iso):
-        if not iso or base_dt is None:
-            return -1
-        return round((datetime.fromisoformat(iso) - base_dt).total_seconds() / 86400.0)
 
     # dictionaries (interned in row order; indices are internally consistent)
     series_dict, series_map = [], {}
@@ -175,7 +168,7 @@ def load_rows(force: bool = False) -> dict:
         mp[key] = i
         return i
 
-    p_, y_, km_, f_, s_, b_, se_, ci_, di_, md_, bt_, ld_, hd_, dmg_ = ([] for _ in range(14))
+    p_, y_, km_, f_, s_, b_, se_, ci_, di_, md_, bt_, hd_, dmg_ = ([] for _ in range(13))
     for r in rows:
         brand, series, model, y, km, fuel, body, hd, price, city, district, ld = r[:12]
         b = _brand_idx(brand)
@@ -199,7 +192,6 @@ def load_rows(force: bool = False) -> dict:
         di_.append(di)
         md_.append(md)
         bt_.append(bt)
-        ld_.append(day_offset(ld))
         hd_.append(1 if hd else 0)
         dmg_.append(dmg)
 
@@ -209,7 +201,7 @@ def load_rows(force: bool = False) -> dict:
         "s": np.array(s_, dtype=np.int64), "b": np.array(b_, dtype=np.int64),
         "se": np.array(se_, dtype=np.int64), "ci": np.array(ci_, dtype=np.int64),
         "di": np.array(di_, dtype=np.int64), "md": np.array(md_, dtype=np.int64),
-        "bt": np.array(bt_, dtype=np.int64), "ld": np.array(ld_, dtype=np.int64),
+        "bt": np.array(bt_, dtype=np.int64),
         "hd": np.array(hd_, dtype=np.int64), "dmg": np.array(dmg_, dtype=np.int64),
     }
     n_unique, n_raw, tramer_avg, tramer_n = meta_row
@@ -260,11 +252,6 @@ def filter_rows(rows: dict, f: dict) -> np.ndarray:
     if f.get("kmMax") is not None:
         mask &= (c["km"] >= 0) & (c["km"] <= f["kmMax"])
     return np.nonzero(mask)[0]  # preserves row order (date-desc)
-
-
-def _day_to_iso(base: str, off: int) -> str:
-    d = datetime.fromisoformat(base)
-    return (d.fromordinal(d.toordinal() + off)).isoformat()[:10]
 
 
 # ── main aggregation (port of computeAgg) ────────────────────────────────
@@ -356,22 +343,6 @@ def compute_agg(rows: dict, idx: np.ndarray) -> dict:
             "city": (dic["city"][int(ci[i])] if ci[i] >= 0 else "—"),
             "damaged": bool(hd[i] == 1), "price": int(p[i]),
         })
-
-    # daily volume — last 15 days of the global window
-    max_ld = int(c["ld"].max()) if c["ld"].size else 0
-    win_start = max_ld - 14
-    day_counts = [0] * 15
-    ld_f = c["ld"][idx]
-    for i in range(n):
-        off = int(ld_f[i])
-        if win_start <= off <= max_ld:
-            day_counts[off - win_start] += 1
-    highlight_idx = day_counts.index(max(day_counts)) if day_counts else 0
-    daily_volume = {
-        "days": [_day_to_iso(meta["base_date"], win_start + k) for k in range(15)] if meta["base_date"] else [],
-        "counts": day_counts, "highlightIdx": highlight_idx,
-        "thisWeek": sum(day_counts[-7:]), "lastWeek": sum(day_counts[-14:-7]),
-    }
 
     # fuel x year (clustered)
     y_pos = {yy: k for k, yy in enumerate(MATRIX_YEARS)}
@@ -512,7 +483,7 @@ def compute_agg(rows: dict, idx: np.ndarray) -> dict:
         "segmentPrice": segment_price,
         "matrix": {"buckets": [b[2] for b in BUCKETS], "rows": matrix_rows, "colTotals": col_totals,
                    "grandTotal": sum(col_totals)},
-        "recent": recent, "dailyVolume": daily_volume, "fuelYear": fuel_year, "fuelDonut": fuel_donut,
+        "recent": recent, "fuelYear": fuel_year, "fuelDonut": fuel_donut,
         "brandRange": brand_range, "priceByYear": [{"year": r["year"], "price": r["price"]} for r in price_by_year],
         "density": density, "scatter": scatter, "provinces": provinces, "provMax": prov_max,
         "priceHist": price_hist, "bodyBox": body_box, "damageImpact": damage_impact, "damageBySeg": damage_by_seg,
