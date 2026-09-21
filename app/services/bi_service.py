@@ -133,7 +133,11 @@ def load_rows(force: bool = False) -> dict:
                kb_body_type AS body, is_heavy_damaged AS hd, price AS p, city, district,
                listing_date::VARCHAR AS ld, {dmg_select}
         FROM cars
-        ORDER BY listing_date DESC
+        -- ad_id only breaks ties: without it DuckDB orders same-date rows differently on each
+        -- run, and `recent` (the first 14) plus the scatter sample are read straight off this
+        -- order, so the dashboard changed on every restart. Date stays primary; ad_id climbs
+        -- with listing age, so DESC keeps the newest-first reading.
+        ORDER BY listing_date DESC, ad_id DESC
     """
     meta_sql = f"""
         SELECT COUNT(*) n_unique, (SELECT COUNT(*) FROM car_listings WHERE {TR_ROWS}) n_raw,
