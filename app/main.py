@@ -1,4 +1,5 @@
 import os
+import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,12 +7,28 @@ from fastapi.responses import PlainTextResponse
 
 from app.core.config import settings
 from app.api.routes import router
-from app.services import bi_service, data_service, lgb_service
+from app.services import bi_service, data_service, drift_service, lgb_service
+from app.core.volume import reset_on_new_deploy
+
+
+def _warm_drift_cache() -> None:
+    try:
+        drift_service.warm_cache()
+    except Exception as e:
+        print(f"Drift cache warm stopped ({e}); remaining pairs will compute on first request.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"Starting application (volume: {settings.VOLUME_DIR}).")
+
+    # A new deploy starts from an empty volume (app/core/volume.py): the data is frozen, so the
+    # database is pulled fresh below and the drift cache is rebuilt from it. A restart within
+    # the same deploy keeps what it has. No-op off Railway.
+    try:
+        reset_on_new_deploy()
+    except Exception as e:
+        print(f"Volume reset failed ({e}); continuing with the volume as it is.")
 
     # Price-prediction serving model (LightGBM · TF-IDF+SVD): download from S3 → memory.
     try:
@@ -48,6 +65,10 @@ async def lifespan(app: FastAPI):
         print("BI rows + snapshots warmed into memory.")
     except Exception as e:
         print(f"Warm-up skipped ({e}); caches will build lazily on first request.")
+
+    # Every drift answer, precomputed onto the volume — in the background, so the API serves
+    # from the first second; a request for a pair not written yet simply computes it.
+    threading.Thread(target=_warm_drift_cache, name="drift-cache-warm", daemon=True).start()
 
     yield
 

@@ -113,6 +113,48 @@ def get_data_drift(ref, curr, mode: str = "specific", brand: str | None = None):
     return results
 
 
+def warm_cache() -> dict:
+    """Fill the drift cache with every answer the API can give. The data is frozen, so the set
+    is finite and fixed: each ordered snapshot pair (ref ≠ curr — the UI allows either order) ×
+    both modes × no brand and each brand. With four snapshots that is 12 × 2 × 3 = 72 files.
+
+    Run once per boot, in a background thread (app/main.py), after the volume reset and the
+    cars.duckdb bootstrap. An entry already on disk is read, not recomputed, so a restart that
+    kept its volume finishes almost at once; an entry that fails is logged and skipped.
+    """
+    import time
+    from datetime import date
+
+    from app.core.db import get_db_connection
+    from app.services.data_service import TR_ROWS, get_snapshots
+
+    started = time.monotonic()
+    dates = [date.fromisoformat(s["date"]) for s in get_snapshots().get("snapshots", [])]
+    with get_db_connection() as conn:
+        brands = [r[0] for r in conn.execute(
+            f"SELECT DISTINCT lower(brand) FROM car_listings WHERE {TR_ROWS} AND brand IS NOT NULL ORDER BY 1"
+        ).fetchall()]
+
+    done = {"computed": 0, "cached": 0, "failed": 0}
+    for mode in ("specific", "until"):
+        for brand in [None, *brands]:
+            for ref in dates:
+                for curr in dates:
+                    if ref == curr:
+                        continue
+                    was_cached = _cache_path(ref, curr, mode, brand).exists()
+                    try:
+                        get_data_drift(ref, curr, mode=mode, brand=brand)
+                        done["cached" if was_cached else "computed"] += 1
+                    except Exception as e:
+                        done["failed"] += 1
+                        print(f"drift warm: {mode} {ref}→{curr} {brand or 'all'} failed ({e}).")
+    total = sum(done.values())
+    print(f"Drift cache warm: {total} entries — {done['computed']} computed, {done['cached']} cached, "
+          f"{done['failed']} failed — in {time.monotonic() - started:.1f}s.")
+    return done
+
+
 def calculate_custom_drift(ref_df: "pd.DataFrame", curr_df: "pd.DataFrame"):  # noqa: F821
     from scipy.stats import ks_2samp, wasserstein_distance  # lazy: only when drift runs
     drift_results = []
