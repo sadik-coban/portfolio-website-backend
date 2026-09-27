@@ -5,10 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Repo root: config.py -> core -> app -> <root>
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Persistent volume root. On Railway mount a Volume at /data and set
-# VOLUME_DIR=/data. Locally defaults to the repo root so existing files
-# (cars.duckdb) keep working.
-_VOLUME_DIR = os.getenv("VOLUME_DIR", str(_REPO_ROOT))
+# Persistent volume root, in order: an explicit VOLUME_DIR; else the mount path Railway injects
+# into any service with a volume attached (RAILWAY_VOLUME_MOUNT_PATH, /data here); else the repo
+# root, so a local checkout keeps using its own cars.duckdb. Without the Railway fallback the
+# service never used its volume: VOLUME_DIR was not set there, and parents[3] of this file in
+# the deployed container (/app/app/core/config.py) is "/", the container's own disk.
+_VOLUME_DIR = os.getenv("VOLUME_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH") or str(_REPO_ROOT)
 
 
 class Settings(BaseSettings):

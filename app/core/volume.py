@@ -11,8 +11,9 @@ wipe, and a boot that finds the same id there leaves the volume alone.
 
 Guards — this deletes files, so it only ever runs on a real Railway volume:
   • RAILWAY_DEPLOYMENT_ID must be set (it never is locally);
-  • VOLUME_DIR must be set explicitly (Railway: /data). Locally it falls back to the repo root,
-    which in this checkout is the whole portfolio repository;
+  • the volume must be named explicitly — VOLUME_DIR, or the RAILWAY_VOLUME_MOUNT_PATH Railway
+    injects when a volume is attached (/data). Without either, VOLUME_DIR falls back to the repo
+    root, which locally is the whole portfolio checkout and on Railway is the container's "/";
   • and the resolved volume must not be the repo root anyway.
 """
 import os
@@ -30,8 +31,8 @@ def reset_on_new_deploy() -> None:
     deployment = os.getenv("RAILWAY_DEPLOYMENT_ID")
     if not deployment:
         return  # not on Railway (local run): never touch anything
-    if not os.getenv("VOLUME_DIR"):
-        print("Volume reset skipped: VOLUME_DIR is not set, so the volume is the repo root.")
+    if not (os.getenv("VOLUME_DIR") or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")):
+        print("Volume reset skipped: no volume attached (neither VOLUME_DIR nor RAILWAY_VOLUME_MOUNT_PATH is set).")
         return
     volume = Path(settings.VOLUME_DIR).resolve()
     if volume == _REPO_ROOT or not volume.is_dir():
