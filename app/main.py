@@ -98,7 +98,7 @@ app = FastAPI(
         "same evaluation this model shipped from.\n\n"
         "- 🚗 **Price prediction** — LightGBM · TF-IDF+SVD, bundled with its vectorizer "
         "and category maps and loaded from S3 into memory at boot. Trained on `log1p(price)`; "
-        "returns a point estimate with a fixed ±6.6% band.\n"
+        "returns a point estimate with a 90% conformal interval (≈ −13% / +15%).\n"
         "- 📈 **BI dashboard** — aggregation runs server-side; raw listing rows never "
         "leave the backend.\n"
         "- 📊 **Data drift** — KS test + Wasserstein distance between listing snapshots "

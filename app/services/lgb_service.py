@@ -9,6 +9,11 @@ Serving flow (mirrors the training pipeline):
   categoricals → cat_maps label-encode · numerics as-is ·
   model/series text → TF-IDF vec → SVD embedding (model_0..149, series_0..19) →
   assemble in feat_cols order → model.predict → np.expm1(clip(pred, 0, log1p(1.5e7))).
+
+The 90% interval is the bundle's own conformal margin (encoders.pkl → CONFORMAL_Q, defined in
+CONFORMAL_TANIM): q is the 90th percentile of the out-of-fold log errors, and the band is
+expm1(clip(pred ± q, 0, log1p(1.5e7))). One q for the whole market → about −13% / +15% around
+the estimate; it covers ~90% overall but less in the cheapest price quartile (technical report §8).
 """
 import os
 import pickle
@@ -33,7 +38,8 @@ NUM_FIELDS = ["vehicle_age", "gb_mileage", "power_hp_val", "engine_cc_val",
               "door_changed", "door_painted", "door_local",
               "fender_changed", "fender_painted", "fender_local",
               "bumper_changed", "bumper_painted", "bumper_local", "is_heavy_damaged"]
-MARGIN_PCT = 6.6  # OOF MAPE of the LightGBM model → shown as a ± band
+PRICE_CAP_LOG = float(np.log1p(1.5e7))  # training clip: ₺15M
+COVERAGE_PCT = 90  # CONFORMAL_Q is the 90th percentile of |OOF log error| (CONFORMAL_TANIM)
 
 
 def _assert_bundle_matches_schema(bundle) -> None:
@@ -111,8 +117,21 @@ def load_model(force: bool = False):
         if _BUNDLE is not None and not force:
             return _BUNDLE
         use_native = bool(settings.SERVING_MODEL_TXT_KEY and settings.SERVING_ENCODERS_KEY)
-        _BUNDLE = _load_native() if use_native else _load_pickle()
+        bundle = _load_native() if use_native else _load_pickle()
+        _assert_bundle_has_interval(bundle)
+        _BUNDLE = bundle
     return _BUNDLE
+
+
+def _assert_bundle_has_interval(bundle) -> None:
+    """The price band comes from the bundle (CONFORMAL_Q), not from a constant here, so a bundle
+    without it can't quote an interval that matches the model it ships with — refuse it."""
+    q = bundle.get("CONFORMAL_Q")
+    if not isinstance(q, (int, float)) or not 0 < q < 1:
+        raise RuntimeError(
+            f"Serving bundle has no usable CONFORMAL_Q (got {q!r}); the 90% interval is read from "
+            "encoders.pkl. Point SERVING_ENCODERS_KEY at an encoders.pkl written by 07_final_model."
+        )
 
 
 def unload_model():
@@ -128,7 +147,7 @@ def _embed(bundle, col: str, text: str) -> np.ndarray:
 
 
 def predict_price(inp: dict) -> dict:
-    """inp: dict with CAT_FIELDS + NUM_FIELDS + 'model' + 'series'. Returns price + band."""
+    """inp: dict with CAT_FIELDS + NUM_FIELDS + 'model' + 'series'. Returns price + 90% interval."""
     b = load_model()
     cm, feat = b["cat_maps"], b["feat_cols"]
     row: dict = {}
@@ -155,13 +174,22 @@ def predict_price(inp: dict) -> dict:
     import pandas as pd
     X = pd.DataFrame([[row[c] for c in feat]], columns=feat)
     raw = float(b["model"].predict(X)[0])
-    price = float(np.expm1(np.clip(raw, 0.0, np.log1p(1.5e7))))
-    price = int(round(price))
-    lo = int(round(price * (1 - MARGIN_PCT / 100)))
-    hi = int(round(price * (1 + MARGIN_PCT / 100)))
+    q = float(b["CONFORMAL_Q"])
+
+    def to_price(log_v: float) -> int:
+        return int(round(float(np.expm1(np.clip(log_v, 0.0, PRICE_CAP_LOG)))))
+
+    price = to_price(raw)
     return {
         "price": price,
-        "price_range": {"min": lo, "max": hi, "margin_percent": MARGIN_PCT},
+        # 90% conformal interval: ± q in log space, so it is asymmetric in lira.
+        "price_range": {
+            "min": to_price(raw - q),
+            "max": to_price(raw + q),
+            "coverage_percent": COVERAGE_PCT,
+            "lower_percent": round(float(np.expm1(-q)) * 100, 1),
+            "upper_percent": round(float(np.expm1(q)) * 100, 1),
+        },
         "model": "LightGBM · TF-IDF+SVD",
         "currency": "TL",
     }

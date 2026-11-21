@@ -20,7 +20,8 @@ router = APIRouter()
     description=(
         "Predict a used-car price with the best model (LightGBM · TF-IDF+SVD). The model "
         "+ preprocessing are downloaded from S3 on startup and held in memory. Returns a "
-        "point estimate + a ±MAPE band. Categoricals use the training vocabulary (Turkish); "
+        "point estimate + a 90% conformal interval (the bundle's CONFORMAL_Q, ± q in log "
+        "space ≈ −13% / +15%). Categoricals use the training vocabulary (Turkish); "
         "model + series are free text (TF-IDF+SVD embedded server-side)."
     ),
     responses={500: {"description": "Prediction error (model unavailable or bad input)"}},
